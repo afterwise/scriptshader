@@ -31,6 +31,8 @@ enum
 	SS_SEL_OP,
 	SS_MIN_OP,
 	SS_MAX_OP,
+	SS_CLAMP_OP,
+	SS_SATURATE_OP,
 	SS_ADD_OP,
 	SS_SUB_OP,
 	SS_MUL_OP,
@@ -162,6 +164,8 @@ static int ssBuiltin(const char* name)
 		{"sel", SS_SEL_OP | 0x300},
 		{"min", SS_MIN_OP | 0x200},
 		{"max", SS_MAX_OP | 0x200},
+		{"clamp", SS_CLAMP_OP | 0x300},
+		{"saturate", SS_SATURATE_OP | 0x100},
 		{"floor", SS_FLOOR_OP | 0x100},
 		{"ceil", SS_CEIL_OP | 0x100},
 		{"abs", SS_ABS_OP | 0x100},
@@ -184,7 +188,7 @@ static int ssBuiltin(const char* name)
 
 static int ssParseExpr(struct SsParseBuffer* pb, int isargs);
 
-static int ssParseTerm(struct SsParseBuffer* pb)
+static int ssParseTerm(struct SsParseBuffer* pb, int isargs)
 {
 	int i, op;
 
@@ -199,7 +203,7 @@ static int ssParseTerm(struct SsParseBuffer* pb)
 			ssEmitCode(pb, SS_CONST_OP);
 			ssEmitConst(pb, 0.f);
 			ssEmitCode(pb, SS_PUSH_OP);
-			ssCheck(ssParseExpr(pb, 0));
+			ssCheck(ssParseExpr(pb, isargs));
 			ssEmitCode(pb, SS_SUB_OP);
 		}
 		else ssError("%d: Unexpected token in expression `%c'\n", pb->line, pb->punct);
@@ -242,7 +246,7 @@ static int ssParseExpr(struct SsParseBuffer* pb, int isargs)
 {
 	int op;
 
-	ssCheck(ssParseTerm(pb));
+	ssCheck(ssParseTerm(pb, isargs));
 
 	while (pb->type != SS_PUNCT_TYPE || (pb->punct != ',' && pb->punct != ';')) {
 		ssCheck(ssNextToken(pb));
@@ -275,7 +279,7 @@ static int ssParseExpr(struct SsParseBuffer* pb, int isargs)
 		else ssError("%d: Unknown operator in expression `%c'\n", pb->line, pb->punct);
 
 		ssEmitCode(pb, SS_PUSH_OP);
-		ssCheck(ssParseTerm(pb));
+		ssCheck(ssParseTerm(pb, isargs));
 		ssEmitCode(pb, op);
 	}
 
@@ -472,6 +476,20 @@ static int ssLoad(struct SsRuntime* rt, struct SsParseBuffer* pb, char* p, size_
 		(a0) = v[0], (a1) = v[1], (a2) = v[2], (a3) = v[3], (a4) = v[4], (a5) = v[5], (a6) = v[6], (a7) = v[7]; \
 	} while (0)
 
+#define ssCall9(rt,name,a0,a1,a2,a3,a4,a5,a6,a7,a8) \
+	do { \
+		float v[SS_MAX_NUM_VARS] = {(a0), (a1), (a2), (a3), (a4), (a5), (a6), (a7), (a8)}; \
+		ssCall((rt), (name), v); \
+		(a0) = v[0], (a1) = v[1], (a2) = v[2], (a3) = v[3], (a4) = v[4], (a5) = v[5], (a6) = v[6], (a7) = v[7], (a8) = v[8]; \
+	} while (0)
+
+#define ssCall10(rt,name,a0,a1,a2,a3,a4,a5,a6,a7,a8,a9) \
+	do { \
+		float v[SS_MAX_NUM_VARS] = {(a0), (a1), (a2), (a3), (a4), (a5), (a6), (a7), (a8), (a9)}; \
+		ssCall((rt), (name), v); \
+		(a0) = v[0], (a1) = v[1], (a2) = v[2], (a3) = v[3], (a4) = v[4], (a5) = v[5], (a6) = v[6], (a7) = v[7], (a8) = v[8], (a9) = v[9]; \
+	} while (0)
+
 static int ssCall(const struct SsRuntime* rt, const char* name, float* vars)
 {
 	float stack[SS_MAX_NUM_STACK], *sp = &stack[SS_MAX_NUM_STACK], eax;
@@ -483,7 +501,7 @@ static int ssCall(const struct SsRuntime* rt, const char* name, float* vars)
 			break;
 
 	if (i == rt->fcnt)
-		ssError("Failed to find function: %s\n", name);
+		return -1;
 
 	code = rt->func[i].code;
 
@@ -505,6 +523,8 @@ static int ssCall(const struct SsRuntime* rt, const char* name, float* vars)
 
 		case SS_MIN_OP: ssTrace("  min %.02f %.02f\n", *sp, eax); break;
 		case SS_MAX_OP: ssTrace("  max %.02f %.02f\n", *sp, eax); break;
+		case SS_CLAMP_OP: ssTrace("  clamp %.02f %.02f %.02f\n", sp[1], sp[0], eax); break;
+		case SS_SATURATE_OP: ssTrace("  saturate %.02f\n", eax); break;
 		case SS_ADD_OP: ssTrace("  add %.02f %.02f\n", *sp, eax); break;
 		case SS_SUB_OP: ssTrace("  sub %.02f %.02f\n", *sp, eax); break;
 		case SS_MUL_OP: ssTrace("  mul %.02f %.02f\n", *sp, eax); break;
@@ -535,6 +555,8 @@ static int ssCall(const struct SsRuntime* rt, const char* name, float* vars)
 		case SS_SEL_OP: eax = sp[1] >= 0.f ? sp[0] : eax; sp += 2; break;
 		case SS_MIN_OP: eax = *sp < eax ? *sp : eax; sp++; break;
 		case SS_MAX_OP: eax = *sp < eax ? eax : *sp; sp++; break;
+		case SS_CLAMP_OP: eax = sp[1] >= sp[0] ? sp[1] <= eax ? sp[1] : eax : sp[0]; sp += 2; break;
+		case SS_SATURATE_OP: eax = eax >= 0.f ? eax <= 1.f ? eax : 1.f : 0.f; break;
 		case SS_ADD_OP: eax = *sp++ + eax; break;
 		case SS_SUB_OP: eax = *sp++ - eax; break;
 		case SS_MUL_OP: eax = *sp++ * eax; break;
