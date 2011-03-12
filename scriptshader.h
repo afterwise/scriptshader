@@ -1,6 +1,7 @@
 
 #pragma once
 
+#define _USE_MATH_DEFINES
 #include <assert.h>
 #include <ctype.h>
 #include <math.h>
@@ -128,7 +129,7 @@ static int ssNextToken(struct SsParseBuffer* pb)
 		pb->type = SS_EOF_TYPE;
 	else if (isalpha(*k)) {
 		pb->type = SS_NAME_TYPE;
-		do k++; while (isalnum(*k));
+		do k++; while (isalnum(*k) || *k == '_');
 
 		if (k - j > SS_MAX_NAME_SIZE - 1)
 			ssError("%d: Name is too long\n", pb->line);
@@ -223,9 +224,17 @@ static int ssParseTerm(struct SsParseBuffer* pb, int isargs)
 			ssCheck(ssParseExpr(pb, 1));
 			ssEmitCode(pb, (op & 0xff));
 		}
-		else if (!strcmp(pb->name, "pi")) {
+		else if (!strcmp(pb->name, "PI")) {
 			ssEmitCode(pb, SS_CONST_OP);
 			ssEmitConst(pb, M_PI);
+		}
+		else if (!strcmp(pb->name, "HALF_PI")) {
+			ssEmitCode(pb, SS_CONST_OP);
+			ssEmitConst(pb, M_PI_2);
+		}
+		else if (!strcmp(pb->name, "QUARTER_PI")) {
+			ssEmitCode(pb, SS_CONST_OP);
+			ssEmitConst(pb, M_PI_4);
 		}
 		else {
 			ssCheck(i = ssResolve(pb, pb->cur, pb->name));

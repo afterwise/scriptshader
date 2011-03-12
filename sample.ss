@@ -1,7 +1,7 @@
 
 function calcCircleArea(area, radius)
 {
-	area = pi * pow(radius, 2);
+	area = PI * pow(radius, 2);
 }
 
 function calcSectorArea(area, radius, angle)
